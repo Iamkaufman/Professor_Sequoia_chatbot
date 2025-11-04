@@ -1,0 +1,10 @@
+pokebase
+pandas
+discord.py>=2.2.2
+aiosqlite
+python-dotenv>=1.0.0
+requests
+certifi
+beautifulsoup4
+selenium
+webdriver-manager
