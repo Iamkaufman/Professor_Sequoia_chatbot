@@ -88,3 +88,35 @@ class Repository:
             rows = await cur.fetchall()
             await cur.close()
             return [dict(r) for r in rows]
+        
+async def get_top_usage(self, regulation_id: str, limit: int = 100) -> List[Dict]:
+    """Get top usage Pokémon for a regulation."""
+    q = """
+    SELECT pokemon_name, usage_percent, rank
+    FROM usage_stats
+    WHERE regulation_id = ?
+    ORDER BY rank
+    LIMIT ?
+    """
+    async with aiosqlite.connect(self.db_path) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(q, (regulation_id, limit))
+        rows = await cur.fetchall()
+        await cur.close()
+        return [dict(r) for r in rows]
+
+async def get_top_usage(self, regulation_id: str, limit: int = 100) -> List[Dict]:
+    """Get top usage Pokémon for a regulation."""
+    q = """
+    SELECT pokemon_name, usage_percent, rank
+    FROM usage_stats
+    WHERE regulation_id = ?
+    ORDER BY rank
+    LIMIT ?
+    """
+    async with aiosqlite.connect(self.db_path) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(q, (regulation_id, limit))
+        rows = await cur.fetchall()
+        await cur.close()
+        return [dict(r) for r in rows]
