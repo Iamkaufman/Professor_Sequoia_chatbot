@@ -53,15 +53,21 @@ class Repository:
             await cur.close()
             return [dict(r) for r in rows]
 
-    async def get_common_usage(self, pokemon_name: str) -> float:
-        # If you have a usage table or RegUsage, adapt query here
-        q = "SELECT 1.0 as usage FROM pokemon LIMIT 1;"  # fallback stub
+    async def get_common_usage(self, regulation_id: str) -> List[Dict]:
+        """Get common usage Pokémon for a regulation."""
+        q = """
+        SELECT pokemon_name, usage_percent, rank
+        FROM usage_stats
+        WHERE regulation_id = ?
+        ORDER BY rank
+        LIMIT 100
+        """
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
-            cur = await db.execute(q)
-            row = await cur.fetchone()
+            cur = await db.execute(q, (regulation_id,))
+            rows = await cur.fetchall()
             await cur.close()
-            return float(row["usage"]) if row else 0.0
+            return [dict(r) for r in rows]
 
     async def query_pokemon_pool(self, exclude_ids: List[int]=None, types_exclude: List[str]=None, limit:int=50) -> List[Dict]:
         exclude_ids = exclude_ids or []

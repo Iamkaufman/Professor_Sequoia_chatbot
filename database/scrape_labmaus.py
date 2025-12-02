@@ -1,5 +1,5 @@
 """
-Scrape LabMaus team data using Selenium for JavaScript-rendered content
+Scrape LabMaus Pokémon usage data by directly accessing Pokemon pages
 """
 
 import sqlite3
@@ -15,24 +15,31 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 from bs4 import BeautifulSoup
+import re
 
-print(">>> Starting scrape_labmaus.py...")
+print(">>> Starting LabMaus Pokémon usage scraper...")
 
 DB_PATH = Path(__file__).resolve().parent / "professor_sequoia.db"
 
-# Regulation mapping (what LabMaus calls them)
-REGULATIONS = {
-    'A': 'Scarlet & Violet - Regulation A',
-    'B': 'Scarlet & Violet - Regulation B', 
-    'C': 'Scarlet & Violet - Regulation C',
-    'D': 'Scarlet & Violet - Regulation D',
-    'E': 'Scarlet & Violet - Regulation E',
-    'F': 'Scarlet & Violet - Regulation F',
-    'G': 'Scarlet & Violet - Regulation G',
-    'H': 'Scarlet & Violet - Regulation H',
-    'I': 'Scarlet & Violet - Regulation I',
-    'J': 'Scarlet & Violet - Regulation J',
-}
+# Top competitive Pokémon to search for
+POKEMON_TO_SEARCH = [
+    'incineroar', 'rillaboom', 'amoonguss', 'tornadus', 'landorus-therian',
+    'urshifu-rapid-strike', 'calyrex-shadow', 'ogerpon-wellspring', 'farigiraf',
+    'gholdengo', 'kingambit', 'whimsicott', 'pelipper', 'archaludon',
+    'iron-hands', 'sneasler', 'ursaluna-bloodmoon', 'annihilape', 'tatsugiri',
+    'dondozo', 'iron-crown', 'clefairy', 'corviknight', 'arcanine', 'garganacl',
+    'porygon2', 'dragonite', 'gastrodon', 'goodra-hisui', 'grimmsnarl',
+    'iron-boulder', 'kommo-o', 'lilligant-hisui', 'maushold', 'meowscarada',
+    'ninetales-alola', 'palafin', 'primarina', 'reuniclus', 'scream-tail',
+    'smeargle', 'sylveon', 'tapu-fini', 'ting-lu', 'torkoal', 'volcarona',
+    'baxcalibur', 'entei', 'heatran', 'indeedee', 'walking-wake',
+    'iron-bundle', 'wo-chien', 'great-tusk', 'ursaluna', 'chi-yu',
+    'chien-pao', 'raging-bolt', 'gouging-fire', 'iron-valiant', 'flutter-mane',
+    'roaring-moon', 'iron-treads', 'iron-moth', 'iron-jugulis', 'sandy-shocks',
+    'brute-bonnet', 'slither-wing', 'scream-tail', 'iron-thorns', 'iron-bundle'
+]
+
+REGULATIONS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J']
 
 
 def setup_driver():
@@ -54,124 +61,158 @@ def setup_driver():
     return driver
 
 
-def scrape_regulation_teams(driver, regulation_letter):
+def get_pokemon_url_name(pokemon_name):
+    """Convert Pokemon name to URL format."""
+    # LabMaus uses lowercase with hyphens
+    return pokemon_name.lower().replace(' ', '-')
+
+
+def scrape_pokemon_page(driver, pokemon_name):
     """
-    Scrape team data for a specific regulation using Selenium.
+    Access Pokemon page directly and extract usage data.
     """
-    print(f"\nScraping Regulation {regulation_letter}...")
+    url_name = get_pokemon_url_name(pokemon_name)
+    url = f"https://labmaus.net/pokemon/{url_name}"
     
-    url = "https://labmaus.net/teams"
-    driver.get(url)
+    print(f"\nScraping {pokemon_name} from {url}...")
     
     try:
-        # Wait for page to load
-        wait = WebDriverWait(driver, 10)
+        driver.get(url)
+        time.sleep(3)  # Wait for page to load
         
-        # Find and click the regulation dropdown
-        # You'll need to inspect the actual element - this is an example
-        regulation_dropdown = wait.until(
-            EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Scarlet & Violet')]"))
-        )
-        regulation_dropdown.click()
-        time.sleep(1)
-        
-        # Select the specific regulation
-        reg_name = REGULATIONS[regulation_letter]
-        regulation_option = wait.until(
-            EC.element_to_be_clickable((By.XPATH, f"//div[contains(text(), '{reg_name}')]"))
-        )
-        regulation_option.click()
-        time.sleep(2)
-        
-        # Click search button
-        search_button = driver.find_element(By.XPATH, "//button[contains(text(), 'Search')]")
-        search_button.click()
-        time.sleep(3)
-        
-        # Now extract the team data from __NEXT_DATA__ script tag
+        # Get page source
         page_source = driver.page_source
         soup = BeautifulSoup(page_source, 'html.parser')
         
+        usage_data = {}
+        
+        # Look for __NEXT_DATA__ script tag
         script_tag = soup.find('script', {'id': '__NEXT_DATA__'})
-        if not script_tag:
-            print(f"  [!] No team data found for Regulation {regulation_letter}")
-            return []
+        if script_tag:
+            try:
+                data = json.loads(script_tag.string)
+                props = data.get('props', {}).get('pageProps', {})
+                
+                # Print structure for debugging (first pokemon only)
+                if pokemon_name == POKEMON_TO_SEARCH[0]:
+                    print(f"  → Page props keys: {list(props.keys())}")
+                
+                # Look for usage data in various possible locations
+                pokemon_data = props.get('pokemon', props.get('data', props))
+                
+                # Check if there's regulation-specific data
+                if 'regulations' in pokemon_data:
+                    for reg_data in pokemon_data['regulations']:
+                        # Extract regulation letter
+                        reg_name = str(reg_data.get('name', reg_data.get('regulation', '')))
+                        match = re.search(r'Regulation ([A-J])', reg_name, re.IGNORECASE)
+                        
+                        if match:
+                            reg_letter = match.group(1).upper()
+                            usage_pct = float(reg_data.get('usage', reg_data.get('usagePercent', 0)))
+                            
+                            if usage_pct > 0:
+                                usage_data[f'reg-{reg_letter.lower()}'] = usage_pct
+                
+                # Alternative structure: direct regulation keys
+                for reg in REGULATIONS:
+                    for key_pattern in [f'reg{reg}', f'regulation{reg}', f'reg-{reg.lower()}', f'regulation_{reg.lower()}']:
+                        if key_pattern in pokemon_data:
+                            reg_info = pokemon_data[key_pattern]
+                            if isinstance(reg_info, dict) and 'usage' in reg_info:
+                                usage_data[f'reg-{reg.lower()}'] = float(reg_info['usage'])
+                            elif isinstance(reg_info, (int, float)):
+                                usage_data[f'reg-{reg.lower()}'] = float(reg_info)
+                
+                if usage_data:
+                    print(f"  ✓ Found usage for {len(usage_data)} regulations")
+                    return usage_data
+                
+            except json.JSONDecodeError as e:
+                print(f"  [!] JSON decode error: {e}")
+            except Exception as e:
+                print(f"  [!] Error parsing data: {e}")
         
-        data = json.loads(script_tag.string)
-        teams = data['props']['pageProps']['teams']
+        # Fallback: scrape visible HTML
+        print(f"  → Trying HTML scraping fallback...")
         
-        print(f"  → Found {len(teams)} teams")
-        return teams
+        # Look for tables or divs with regulation data
+        for reg in REGULATIONS:
+            patterns = [
+                f'Regulation {reg}',
+                f'Reg {reg}',
+                f'Series {reg}'
+            ]
+            
+            for pattern in patterns:
+                # Find all text containing this regulation
+                elements = soup.find_all(string=lambda text: text and pattern in str(text))
+                
+                for elem in elements:
+                    # Look in parent element for percentage
+                    parent = elem.parent
+                    if parent:
+                        parent_text = parent.get_text()
+                        # Look for percentage near regulation name
+                        pct_match = re.search(r'(\d+\.?\d*)\s*%', parent_text)
+                        if pct_match:
+                            usage_pct = float(pct_match.group(1))
+                            if usage_pct > 0:
+                                usage_data[f'reg-{reg.lower()}'] = usage_pct
+                                break
+        
+        if usage_data:
+            print(f"  ✓ Found usage for {len(usage_data)} regulations (HTML scraping)")
+        else:
+            print(f"  ⚠️  No usage data found")
+            # Save page for debugging
+            with open(f"debug_{url_name}.html", "w", encoding="utf-8") as f:
+                f.write(page_source)
+            print(f"  → Saved debug_{url_name}.html for inspection")
+        
+        return usage_data
         
     except Exception as e:
-        print(f"  [!] Error scraping Regulation {regulation_letter}: {e}")
-        return []
+        print(f"  [!] Error: {e}")
+        import traceback
+        traceback.print_exc()
+        return {}
 
 
-def aggregate_pokemon_usage(teams):
-    """Calculate usage statistics from team data."""
-    if not teams:
-        return []
-    
-    pokemon_counts = defaultdict(int)
-    total_slots = 0
-    
-    for team in teams:
-        for pokemon in team.get('team', []):
-            name = pokemon.get('species', 'Unknown').lower()
-            name = name.replace(' ', '-')
-            pokemon_counts[name] += 1
-            total_slots += 1
-    
-    if total_slots == 0:
-        return []
-    
-    usage_list = []
-    for pokemon_name, count in pokemon_counts.items():
-        usage_percent = (count / total_slots) * 100
-        usage_list.append({
-            'pokemon_name': pokemon_name,
-            'usage_percent': round(usage_percent, 2),
-            'count': count
-        })
-    
-    usage_list.sort(key=lambda x: x['count'], reverse=True)
-    for rank, item in enumerate(usage_list, 1):
-        item['rank'] = rank
-    
-    print(f"  ✓ Calculated usage for {len(usage_list)} unique Pokémon")
-    if usage_list:
-        top_5 = ', '.join([f"{u['pokemon_name']} ({u['usage_percent']:.1f}%)" for u in usage_list[:5]])
-        print(f"  Top 5: {top_5}")
-    
-    return usage_list
-
-
-def scrape_all_regulations():
-    """Scrape usage data for all regulations."""
+def scrape_all_pokemon_usage():
+    """Scrape usage for all competitive Pokémon."""
     driver = setup_driver()
-    all_usage = {}
+    all_usage = defaultdict(list)
     
     try:
-        for reg_letter in REGULATIONS.keys():
+        for i, pokemon in enumerate(POKEMON_TO_SEARCH, 1):
             print(f"\n{'='*60}")
-            teams = scrape_regulation_teams(driver, reg_letter)
+            print(f"[{i}/{len(POKEMON_TO_SEARCH)}] {pokemon}")
+            print('='*60)
             
-            if teams:
-                usage = aggregate_pokemon_usage(teams)
-                if usage:
-                    all_usage[f'reg-{reg_letter.lower()}'] = usage
-                    print(f"  ✓ Successfully processed Regulation {reg_letter}")
-            else:
-                print(f"  ⚠️  No data for Regulation {reg_letter}")
+            usage_data = scrape_pokemon_page(driver, pokemon)
             
-            time.sleep(2)  # Be nice to the server
+            if usage_data:
+                # Organize by regulation
+                for reg_id, usage_pct in usage_data.items():
+                    all_usage[reg_id].append({
+                        'pokemon_name': pokemon,
+                        'usage_percent': usage_pct,
+                    })
+            
+            time.sleep(1)  # Be nice to the server
     
     finally:
         driver.quit()
         print("\n  ✓ Browser closed")
     
-    return all_usage
+    # Calculate ranks for each regulation
+    for reg_id in all_usage:
+        all_usage[reg_id].sort(key=lambda x: x['usage_percent'], reverse=True)
+        for rank, pokemon in enumerate(all_usage[reg_id], 1):
+            pokemon['rank'] = rank
+    
+    return dict(all_usage)
 
 
 def populate_usage_to_db(all_usage, month='2025-01'):
@@ -209,13 +250,25 @@ def populate_usage_to_db(all_usage, month='2025-01'):
 
 if __name__ == "__main__":
     print("="*60)
-    print("LabMaus Selenium Scraper")
+    print("LabMaus Pokémon Usage Scraper (Direct URLs)")
     print("="*60)
     
-    all_usage = scrape_all_regulations()
+    all_usage = scrape_all_pokemon_usage()
     
     if all_usage:
         populate_usage_to_db(all_usage)
+        
+        # Print summary
+        print("\n" + "="*60)
+        print("SUMMARY")
+        print("="*60)
+        for reg_id in sorted(all_usage.keys()):
+            print(f"\n{reg_id.upper()}: {len(all_usage[reg_id])} Pokémon")
+            top_5 = all_usage[reg_id][:5]
+            for p in top_5:
+                print(f"  {p['rank']}. {p['pokemon_name']}: {p['usage_percent']:.1f}%")
+        
         print("\n✅ Scraping complete!")
     else:
-        print("\n❌ No data scraped - check if site structure has changed")
+        print("\n❌ No data scraped")
+        print("Check the debug_*.html files to see the page structure")
